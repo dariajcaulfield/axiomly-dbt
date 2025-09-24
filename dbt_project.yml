@@ -1,0 +1,28 @@
+name: "axiomly_dbt"
+version: "1.0.0"
+config-version: 2
+
+profile: "axiomly" 
+
+model-paths: ["models"]
+seed-paths:  ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+
+models:
+  axiomly_dbt:
+    +materialized: view
+    staging:
+      +schema: analytics_stg
+      +tags: ["staging"]
+    core:
+      +schema: analytics_core
+      +tags: ["core"]
+    marts:
+      +schema: analytics_mart
+      +tags: ["mart"]
+
+seeds:
+  axiomly_dbt:
+    +schema: raw
