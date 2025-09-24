@@ -1,0 +1,401 @@
+version: 2
+
+sources:
+  - name: axiomly_raw
+    database: AXIOMLY
+    schema: RAW
+    # Optional freshness example (uncomment per table if you want)
+    # freshness:
+    #   warn_after: {count: 7, period: day}
+    #   error_after: {count: 30, period: day}
+
+    tables:
+
+      - name: crm_accounts
+        description: "Raw CRM accounts from HubSpot/Salesforce; may contain duplicates."
+        loaded_at_field: updated_at
+        columns:
+          - name: pk_account_id
+            description: "Primary key for the CRM account (source PK)."
+            tests: [not_null, unique]
+          - name: account_name
+            description: "Display name of the account/company."
+          - name: domain
+            description: "Primary web/email domain for the account; used to stitch to product."
+          - name: industry
+            description: "Industry classification."
+          - name: employee_count
+            description: "Employee count reported in CRM."
+          - name: country
+            description: "ISO country or country name of HQ."
+          - name: lifecycle_stage
+            description: "CRM lifecycle (lead, MQL, SQL, opportunity, customer, churned)."
+          - name: owner_user_id
+            description: "CRM user id of account owner."
+          - name: created_at
+            description: "Row creation timestamp (source)."
+          - name: updated_at
+            description: "Row update timestamp (source)."
+
+      - name: crm_contacts
+        description: "Raw CRM contacts (people)."
+        loaded_at_field: updated_at
+        columns:
+          - name: pk_contact_id
+            description: "Primary key for the CRM contact (source PK)."
+            tests: [not_null, unique]
+          - name: fk_account_id
+            description: "Foreign key to CRM account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','crm_accounts')
+                  field: pk_account_id
+          - name: email
+            description: "Contact email (lowercased during staging)."
+          - name: first_name
+            description: "First name."
+          - name: last_name
+            description: "Last name."
+          - name: job_title
+            description: "Job title as captured in CRM."
+          - name: phone
+            description: "Phone number."
+          - name: marketing_opt_in
+            description: "0/1 indicator for marketing consent."
+          - name: created_at
+            description: "Row creation timestamp (source)."
+          - name: updated_at
+            description: "Row update timestamp (source)."
+
+      - name: product_accounts
+        description: "Product/tenant accounts; may or may not be linked to CRM."
+        loaded_at_field: updated_at
+        columns:
+          - name: pk_prod_account_id
+            description: "Primary key for the product account (source PK)."
+            tests: [not_null, unique]
+          - name: fk_crm_account_id
+            description: "Optional link to CRM account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','crm_accounts')
+                  field: pk_account_id
+                  # allow nulls (product-first signups)
+                  where: "fk_crm_account_id is not null"
+          - name: plan_tier
+            description: "Plan tier at account level (Core, Team, Pro, Enterprise)."
+          - name: plan_billing_interval
+            description: "Billing cadence for the plan (monthly, annual)."
+          - name: seats_purchased
+            description: "Number of seats purchased."
+          - name: status
+            description: "Account status in product (active, trial, cancelled, past_due)."
+          - name: created_at
+            description: "Row creation timestamp (source)."
+          - name: updated_at
+            description: "Row update timestamp (source)."
+
+      - name: product_users
+        description: "End users within a product account."
+        columns:
+          - name: pk_prod_user_id
+            description: "Primary key for the product user (source PK)."
+            tests: [not_null, unique]
+          - name: fk_prod_account_id
+            description: "Foreign key to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: email
+            description: "User email (lowercased during staging)."
+          - name: role
+            description: "User role (owner, admin, member, viewer)."
+          - name: status
+            description: "User status (active, invited, suspended, deleted)."
+          - name: first_seen_at
+            description: "First seen timestamp."
+          - name: last_seen_at
+            description: "Last seen timestamp (nullable)."
+          - name: created_at
+            description: "User creation timestamp."
+
+      - name: product_events
+        description: "Tracked product events (high volume)."
+        columns:
+          - name: pk_event_id
+            description: "Primary key for the event (source PK)."
+            tests: [not_null, unique]
+          - name: fk_prod_user_id
+            description: "FK to product user."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_users')
+                  field: pk_prod_user_id
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: event_type
+            description: "Event type (sign_up, login, api_call, error, etc.)."
+          - name: event_properties
+            description: "JSON string of event properties; parsed to VARIANT in staging."
+          - name: event_ts
+            description: "Event timestamp (string in RAW; cast in staging)."
+
+      - name: product_usage_meter
+        description: "Usage measurements per account per day/metric."
+        columns:
+          - name: pk_usage_id
+            description: "Primary key for the usage row (source PK)."
+            tests: [not_null, unique]
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: usage_metric
+            description: "Metric measured (api_calls, minutes, credits)."
+            tests:
+              - accepted_values:
+                  values: ["api_calls","minutes","credits"]
+          - name: usage_qty
+            description: "Quantity for the metric."
+          - name: usage_ts
+            description: "Timestamp of the usage measurement (cast in staging)."
+
+      - name: billing_subscriptions
+        description: "Subscription records from billing system (not snapshots)."
+        loaded_at_field: updated_at
+        columns:
+          - name: pk_subscription_id
+            description: "Primary key for the subscription (source PK)."
+            tests: [not_null, unique]
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: product_sku
+            description: "SKU from plan catalog."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','admin_plan_catalog')
+                  field: product_sku
+          - name: plan_tier
+            description: "Plan tier label."
+          - name: billing_interval
+            description: "Billing cadence (monthly, annual)."
+          - name: current_period_start
+            description: "Start of current billing period."
+          - name: current_period_end
+            description: "End of current billing period."
+          - name: status
+            description: "Subscription status (active, trial, cancelled, past_due)."
+          - name: cancel_at
+            description: "Scheduled cancellation timestamp (nullable)."
+          - name: canceled_at
+            description: "Actual cancellation timestamp (nullable)."
+          - name: created_at
+            description: "Subscription creation timestamp."
+          - name: updated_at
+            description: "Subscription update timestamp."
+
+      - name: billing_invoices
+        description: "Invoice headers."
+        columns:
+          - name: pk_invoice_id
+            description: "Primary key for the invoice (source PK)."
+            tests: [not_null, unique]
+          - name: fk_subscription_id
+            description: "FK to subscription."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','billing_subscriptions')
+                  field: pk_subscription_id
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: invoice_number
+            description: "Human-readable invoice number."
+          - name: currency
+            description: "Currency code (USD, EUR, GBP, etc.)."
+          - name: subtotal
+            description: "Invoice subtotal amount."
+          - name: tax
+            description: "Tax amount."
+          - name: total
+            description: "Total amount."
+          - name: amount_due
+            description: "Amount due after payments/credits."
+          - name: amount_paid
+            description: "Amount paid."
+          - name: invoice_status
+            description: "Invoice status (paid, finalized, uncollectible, void)."
+          - name: invoice_date
+            description: "Invoice date."
+          - name: due_date
+            description: "Due date."
+          - name: finalized_at
+            description: "Finalization timestamp (nullable)."
+          - name: paid_at
+            description: "Payment timestamp (nullable)."
+          - name: voided_at
+            description: "Voided timestamp (nullable)."
+
+      - name: billing_invoice_lines
+        description: "Invoice line items."
+        columns:
+          - name: pk_invoice_line_id
+            description: "Primary key for the invoice line (source PK)."
+            tests: [not_null, unique]
+          - name: fk_invoice_id
+            description: "FK to invoice header."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','billing_invoices')
+                  field: pk_invoice_id
+          - name: line_type
+            description: "subscription | usage | discount | tax."
+          - name: product_sku
+            description: "SKU for subscription/usage lines (nullable for taxes/discounts)."
+          - name: quantity
+            description: "Quantity (e.g., overage units)."
+          - name: unit_amount
+            description: "Unit price."
+          - name: amount
+            description: "Extended amount (quantity * unit_amount)."
+          - name: description
+            description: "Line description."
+
+      - name: billing_payments
+        description: "Payments/charges associated to invoices."
+        columns:
+          - name: pk_payment_id
+            description: "Primary key for the payment (source PK)."
+            tests: [not_null, unique]
+          - name: fk_invoice_id
+            description: "FK to invoice."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','billing_invoices')
+                  field: pk_invoice_id
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: currency
+            description: "Currency code."
+          - name: amount
+            description: "Payment amount."
+          - name: status
+            description: "succeeded | failed | refunded."
+          - name: payment_method
+            description: "card | ach_debit | wire."
+          - name: created_at
+            description: "Payment creation timestamp."
+
+      - name: support_tickets
+        description: "Support tickets from Zendesk-like system."
+        columns:
+          - name: pk_ticket_id
+            description: "Primary key for the ticket (source PK)."
+            tests: [not_null, unique]
+          - name: fk_prod_account_id
+            description: "FK to product account."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_accounts')
+                  field: pk_prod_account_id
+          - name: fk_prod_user_id
+            description: "FK to product user (nullable)."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','product_users')
+                  field: pk_prod_user_id
+                  where: "fk_prod_user_id is not null"
+          - name: priority
+            description: "low | normal | high | urgent."
+          - name: status
+            description: "open | pending | solved | closed."
+          - name: subject
+            description: "Ticket subject."
+          - name: channel
+            description: "email | web | chat | phone."
+          - name: created_at
+            description: "Ticket creation timestamp."
+          - name: first_response_at
+            description: "First response timestamp (nullable)."
+          - name: resolved_at
+            description: "Resolution timestamp (nullable)."
+          - name: closed_at
+            description: "Closed timestamp (nullable)."
+
+      - name: marketing_email_events
+        description: "Email campaign events."
+        columns:
+          - name: pk_email_event_id
+            description: "Primary key for the email event (source PK)."
+            tests: [not_null, unique]
+          - name: fk_contact_id
+            description: "FK to CRM contact."
+            tests:
+              - relationships:
+                  to: source('axiomly_raw','crm_contacts')
+                  field: pk_contact_id
+          - name: campaign_id
+            description: "Email campaign identifier."
+          - name: event_type
+            description: "sent | open | click | bounce | unsubscribe."
+          - name: event_ts
+            description: "Event timestamp."
+
+      - name: finance_fx_rates
+        description: "Monthly FX rates (USD base) for normalization."
+        columns:
+          - name: rate_date
+            description: "Rate date (usually month-end)."
+            tests: [not_null]
+          - name: base_currency
+            description: "Base currency (USD)."
+          - name: quote_currency
+            description: "Quote currency (EUR, GBP, JPY, AUD, CAD)."
+          - name: fx_rate
+            description: "Units of quote per one base."
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns: [rate_date, base_currency, quote_currency]
+
+      - name: admin_plan_catalog
+        description: "Plan/SKU catalog with pricing and features."
+        columns:
+          - name: product_sku
+            description: "SKU identifier."
+            tests: [not_null, unique]
+          - name: plan_tier
+            description: "Plan tier (Core, Team, Pro, Enterprise, AddOn)."
+          - name: billing_interval
+            description: "monthly | annual (Enterprise may be annual only)."
+          - name: description
+            description: "Human-readable plan description."
+          - name: feature_flags
+            description: "JSON of feature toggles; parsed in staging."
+          - name: list_price_monthly_usd
+            description: "Monthly list price (USD)."
+          - name: list_price_annual_usd
+            description: "Annual price (USD)."
+          - name: overage_metric
+            description: "If usage-based: which metric drives overage."
+          - name: overage_rate_usd_per_unit
+            description: "Overage price per unit (USD)."
+          - name: included_units_per_month
+            description: "Included monthly units before overage applies."
