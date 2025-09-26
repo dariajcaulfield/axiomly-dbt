@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: stg_product_accounts
+    description: "Product/tenant accounts."
+    columns:
+      - name: prod_account_id
+        tests: [not_null, unique]
+      - name: crm_account_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','crm_accounts')
+              field: pk_account_id
+              where: "crm_account_id is not null"
+      - name: status
+        tests:
+          - accepted_values:
+              values: ["active","trial","cancelled","past_due"]
+
+  - name: stg_product_users
+    description: "Users within product accounts."
+    columns:
+      - name: prod_user_id
+        tests: [not_null, unique]
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: ref('stg_product_accounts')
+              field: prod_account_id
+
+  - name: stg_product_events
+    description: "Incremental event log with JSON parsed to VARIANT."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [pk_event_id]
+    columns:
+      - name: prod_user_id
+        tests:
+          - relationships:
+              to: ref('stg_product_users')
+              field: prod_user_id
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: ref('stg_product_accounts')
+              field: prod_account_id
+
+  - name: stg_product_usage_meter
+    description: "Incremental usage meter; one row per account/metric/timestamp."
+    columns:
+      - name: pk_usage_id
+        tests: [not_null, unique]
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: ref('stg_product_accounts')
+              field: prod_account_id
+      - name: usage_metric
+        tests:
+          - accepted_values:
+              values: ["api_calls","minutes","credits"]
