@@ -1,0 +1,67 @@
+version: 2
+models:
+  - name: stg_billing_subscriptions
+    columns:
+      - name: subscription_id
+        tests: [not_null, unique]
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','product_accounts')
+              field: pk_prod_account_id
+      - name: product_sku
+        tests:
+          - relationships:
+              to: source('axiomly_raw','admin_plan_catalog')
+              field: product_sku
+      - name: status
+        tests:
+          - accepted_values:
+              values: ["active","trial","cancelled","past_due"]
+
+  - name: stg_billing_invoices
+    columns:
+      - name: invoice_id
+        tests: [not_null, unique]
+      - name: subscription_id
+        tests:
+          - relationships:
+              to: ref('stg_billing_subscriptions')
+              field: subscription_id
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','product_accounts')
+              field: pk_prod_account_id
+      - name: invoice_status
+        tests:
+          - accepted_values:
+              values: ["draft","open","finalized","paid","uncollectible","void"]
+
+  - name: stg_billing_invoice_lines
+    columns:
+      - name: invoice_line_id
+        tests: [not_null, unique]
+      - name: invoice_id
+        tests:
+          - relationships:
+              to: ref('stg_billing_invoices')
+              field: invoice_id
+      - name: line_type
+        tests:
+          - accepted_values:
+              values: ["subscription","usage","discount","tax"]
+
+  - name: stg_billing_payments
+    columns:
+      - name: payment_id
+        tests: [not_null, unique]
+      - name: invoice_id
+        tests:
+          - relationships:
+              to: ref('stg_billing_invoices')
+              field: invoice_id
+      - name: status
+        tests:
+          - accepted_values:
+              values: ["succeeded","failed","refunded"]
