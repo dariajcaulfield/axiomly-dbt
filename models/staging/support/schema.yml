@@ -1,0 +1,25 @@
+version: 2
+models:
+  - name: stg_support_tickets
+    columns:
+      - name: ticket_id
+        tests: [not_null, unique]
+      - name: prod_account_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','product_accounts')
+              field: pk_prod_account_id
+      - name: prod_user_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','product_users')
+              field: pk_prod_user_id
+              where: "prod_user_id is not null"
+      - name: priority
+        tests:
+          - accepted_values:
+              values: ["low","normal","high","urgent"]
+      - name: status
+        tests:
+          - accepted_values:
+              values: ["open","pending","solved","closed"]

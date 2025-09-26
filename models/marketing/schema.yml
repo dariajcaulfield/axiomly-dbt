@@ -1,0 +1,15 @@
+version: 2
+models:
+  - name: stg_marketing_email_events
+    columns:
+      - name: email_event_id
+        tests: [not_null, unique]
+      - name: crm_contact_id
+        tests:
+          - relationships:
+              to: source('axiomly_raw','crm_contacts')
+              field: pk_contact_id
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: ["sent","open","click","bounce","unsubscribe"]
