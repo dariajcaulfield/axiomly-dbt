@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: dim_product_sku
+    description: "SKU catalog from admin_plan_catalog seed."
+    columns:
+      - name: product_sku
+        tests: [not_null, unique]
+      - name: plan_tier
+      - name: billing_interval
+
+  - name: dim_account
+    description: "Conformed account dimension merging CRM and Product."
+    columns:
+      - name: account_sk
+        tests: [not_null, unique]
+      - name: prod_account_id
+      - name: crm_account_id
+      - name: plan_tier
+      - name: status
+
+  - name: dim_user
+    description: "Conformed user dimension; users stitched to accounts and (when possible) CRM contacts."
+    columns:
+      - name: user_sk
+        tests: [not_null, unique]
+      - name: account_sk
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_sk
+
+  - name: fct_events
+    description: "Incremental event fact; microbatch by event_ts."
+    columns:
+      - name: pk_event_id
+        tests: [not_null, unique]
+      - name: user_sk
+      - name: account_sk
+      - name: event_type
+
+  - name: fct_daily_usage
+    description: "Incremental usage fact; microbatch by usage_ts."
+    columns:
+      - name: pk_usage_id
+        tests: [not_null, unique]
+      - name: account_sk
+      - name: usage_metric
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["api_calls","minutes","credits"]
